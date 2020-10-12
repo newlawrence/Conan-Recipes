@@ -53,7 +53,7 @@ class LLVMConan(ConanFile):
         'with_ffi': False
     }
 
-    exports_sources = ['CMakeLists.txt']
+    exports_sources = ['CMakeLists.txt', 'iconv.patch']
     generators = 'cmake'
     no_copy_source = True
 
@@ -92,6 +92,8 @@ class LLVMConan(ConanFile):
         for item in source_path.joinpath(f'llvm-{self.version}.src').iterdir():
             item.rename(str(source_path.joinpath(item.name).resolve()))
         source_path.joinpath(f'llvm-{self.version}.src').rmdir()
+
+        tools.patch(base_path=self._source_subfolder, patch_file='iconv.patch')
 
     def build(self):
         build_system = CMake(self)
@@ -159,13 +161,6 @@ class LLVMConan(ConanFile):
                 self.deps_cpp_info['libffi'].lib_paths[0]
 
         build_system.configure()
-        if self.options.with_ffi:
-            cache = tools.load('CMakeCache.txt')
-            ffi_regex = r'FFI_LIBRARY_PATH:FILEPATH=(.*?)((?:lib)?ffi\.[a-z]+)'
-            old_ffi = re.search(ffi_regex, cache).string
-            ffi_path = Path(f'{self.deps_cpp_info["libffi"].lib_paths[0]}')
-            new_ffi = str(next(ffi_path.iterdir()).resolve())
-            tools.replace_in_file('CMakeCache.txt', old_ffi, new_ffi)
 
         build_system.build()
 
@@ -188,15 +183,14 @@ class LLVMConan(ConanFile):
 
         exports = exports.replace('\$<LINK_ONLY:', '')
         exports = exports.replace('>', '')
-        if self.options.with_zlib:
-            exports = exports.replace('"z', '"')
-            exports = exports.replace(';z', '')
-        if self.options.with_xml2:
-            exports = exports.replace('"xml2', '"')
-            exports = exports.replace(';xml2', '')
-        if self.options.with_ffi:
-            exports = exports.replace('"ffi', '"')
-            exports = exports.replace(';ffi', '')
+        exports = exports.replace('"z', '"')
+        exports = exports.replace(';z', '')
+        exports = exports.replace('"xml2', '"')
+        exports = exports.replace(';xml2', '')
+        exports = exports.replace('"iconv', '"')
+        exports = exports.replace(';iconv', '')
+        exports = exports.replace('"ffi', '"')
+        exports = exports.replace(';ffi', '')
 
         graph = nx.DiGraph()
         for match in re.finditer(lib_regex, exports):

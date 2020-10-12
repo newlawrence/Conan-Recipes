@@ -1,0 +1,11 @@
+--- cmake/config-ix.cmake
++++ cmake/config-ix.cmake
+@@ -166,7 +166,7 @@
+         else()
+           include_directories(${LIBXML2_INCLUDE_DIR})
+         endif()
+-        set(LIBXML2_LIBS "xml2")
++        set(LIBXML2_LIBS "xml2;iconv")
+       endif()
+     endif()
+   endif()
