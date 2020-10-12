@@ -19,6 +19,8 @@ class LLVMConan(ConanFile):
     options = {
         'shared': [True, False],
         'fPIC': [True, False],
+        'dylib_library': [True, False],
+        'dylib_components': 'ANY',
         'targets': 'ANY',
         'exceptions': [True, False],
         'rtti': [True, False],
@@ -35,6 +37,8 @@ class LLVMConan(ConanFile):
     default_options = {
         'shared': False,
         'fPIC': True,
+        'dylib_library': False,
+        'dylib_components': 'all',
         'targets': 'X86',
         'exceptions': True,
         'rtti': True,
@@ -58,6 +62,8 @@ class LLVMConan(ConanFile):
     def config_options(self):
         if self.settings.os == 'Windows':
             del self.options.fPIC
+            del self.options.dylib_library
+            del self.options.dylib_components
 
     def requirements(self):
         if self.options.with_zlib:
@@ -68,6 +74,8 @@ class LLVMConan(ConanFile):
             self.requires('libffi/3.3')
 
     def configure(self):
+        if self.settings.os != 'Windows' and self.options.shared:
+            self.options.dylib_library = False
         if self.options.exceptions:
             self.options.rtti = True
 
@@ -91,9 +99,12 @@ class LLVMConan(ConanFile):
         build_system.definitions['CMAKE_SKIP_RPATH'] = True
         build_system.definitions['LLVM_TARGETS_TO_BUILD'] = self.options.targets
         build_system.definitions['LLVM_TARGET_ARCH'] = 'host'
-        build_system.definitions['LLVM_BUILD_LLVM_DYLIB'] = self.options.shared
         if self.settings.os != 'Windows':
             build_system.definitions['LLVM_ENABLE_PIC'] = self.options.fPIC
+            build_system.definitions['LLVM_LINK_LLVM_DYLIB'] = \
+                self.options.dylib_library
+            build_system.definitions['LLVM_DYLIB_COMPONENTS'] = \
+                self.options.dylib_components
 
         build_system.definitions['LLVM_ABI_BREAKING_CHECKS'] = 'WITH_ASSERTS'
         build_system.definitions['LLVM_ENABLE_WARNINGS'] = True
@@ -110,12 +121,12 @@ class LLVMConan(ConanFile):
         build_system.definitions['LLVM_ENABLE_BINDINGS'] = False
         build_system.definitions['LLVM_CCACHE_BUILD'] = False
 
-        build_system.definitions['LLVM_BUILD_DOCS'] = False
-        build_system.definitions['LLVM_INCLUDE_TOOLS'] = False
+        build_system.definitions['LLVM_INCLUDE_TOOLS'] = True
         build_system.definitions['LLVM_INCLUDE_EXAMPLES'] = False
         build_system.definitions['LLVM_INCLUDE_TESTS'] = False
         build_system.definitions['LLVM_INCLUDE_BENCHMARKS'] = False
         build_system.definitions['LLVM_APPEND_VC_REV'] = False
+        build_system.definitions['LLVM_BUILD_DOCS'] = False
         build_system.definitions['LLVM_ENABLE_IDE'] = False
 
         build_system.definitions['LLVM_ENABLE_EH'] = self.options.exceptions
