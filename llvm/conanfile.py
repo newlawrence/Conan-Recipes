@@ -161,7 +161,6 @@ class LLVMConan(ConanFile):
                 self.deps_cpp_info['libffi'].lib_paths[0]
 
         build_system.configure()
-
         build_system.build()
 
     def package(self):
@@ -174,27 +173,31 @@ class LLVMConan(ConanFile):
         lib_regex = re.compile(
             r'add_library\((\w+?)\s.*?\)'
             r'(?:(?:#|\w|\s|\()+?'
-            r'INTERFACE_LINK_LIBRARIES\s\"((?:;|\w)+?)\"'
+            r'INTERFACE_LINK_LIBRARIES\s\"((?:;|/|\.|\w)+?)\"'
             r'(?:.|\n)*?\))?'
         )
         exports_file = 'LLVMExports.cmake'
         exports_path = Path('lib').joinpath('cmake', 'llvm', exports_file)
-        exports = tools.load(str(exports_path.resolve()))
 
+        exports = tools.load(str(exports_path.resolve()))
         exports = exports.replace('\$<LINK_ONLY:', '')
         exports = exports.replace('>', '')
-        exports = exports.replace('"z', '"')
-        exports = exports.replace(';z', '')
-        exports = exports.replace('"xml2', '"')
-        exports = exports.replace(';xml2', '')
-        exports = exports.replace('"iconv', '"')
-        exports = exports.replace(';iconv', '')
-        exports = exports.replace('"ffi', '"')
-        exports = exports.replace(';ffi', '')
 
         graph = nx.DiGraph()
         for match in re.finditer(lib_regex, exports):
             lib, deps = match.groups()
-            for dep in deps.split(';') if deps is not None else []:
-                graph.add_edge(lib, dep)
-        self.cpp_info.libs = list(nx.lexicographical_topological_sort(graph))
+            if lib.startswith('LLVM'):
+                for dep in deps.split(';') if deps is not None else []:
+                    if dep.startswith('LLVM'):
+                        graph.add_edge(lib, dep)
+            else:
+                graph.add_node(lib)
+
+        libs = list(nx.lexicographical_topological_sort(graph))
+        # components = {}
+        # for node in graph.nodes:
+        #     components[node] = sorted(
+        #         nx.descendants(graph, node),
+        #         key=lambda lib: libs.index(lib)
+        #     )
+        self.cpp_info.libs = libs
