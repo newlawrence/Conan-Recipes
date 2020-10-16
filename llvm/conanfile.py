@@ -167,6 +167,24 @@ class LLVMConan(ConanFile):
         build_system = CMake(self)
         build_system.install(build_dir='.')
 
+        if self.settings.os != 'Windows':
+            if self.options.dylib_library:
+                package_path = Path(self.package_folder)
+                exports_path = package_path.joinpath('lib', 'cmake', 'llvm')
+                libdriver_deps = '"{}"'.format(';'.join([
+                    'LLVMBinaryFormat',
+                    'LLVMBitReader',
+                    'LLVMObject',
+                    'LLVMOption',
+                    'LLVMSupport'
+                ]))
+                tools.replace_in_file(
+                    str(exports_path.joinpath('LLVMExports.cmake').resolve()),
+                    '"LLVM"',
+                    libdriver_deps,
+                    strict=False
+                )
+
         self.copy('LICENSE.TXT', dst='licenses', src=self._source_subfolder)
 
     def package_info(self):
@@ -186,18 +204,57 @@ class LLVMConan(ConanFile):
         graph = nx.DiGraph()
         for match in re.finditer(lib_regex, exports):
             lib, deps = match.groups()
-            if lib.startswith('LLVM'):
-                for dep in deps.split(';') if deps is not None else []:
-                    if dep.startswith('LLVM'):
-                        graph.add_edge(lib, dep)
-            else:
-                graph.add_node(lib)
+            if not lib.startswith('LLVM') or lib == 'LLVM':
+                continue
+            for dep in deps.split(';') if deps is not None else []:
+                if not dep.startswith('LLVM'):
+                    if Path(dep).exists():
+                        dep = Path(dep).stem.replace('lib', '')
+                graph.add_edge(lib, dep)
 
+        deps = ['z', 'xml2', 'iconv', 'ffi']
         libs = list(nx.lexicographical_topological_sort(graph))
-        # components = {}
-        # for node in graph.nodes:
-        #     components[node] = sorted(
-        #         nx.descendants(graph, node),
-        #         key=lambda lib: libs.index(lib)
-        #     )
-        self.cpp_info.libs = libs
+
+        for node in graph.nodes:
+            if not node.startswith('LLVM'):
+                continue
+
+            component = node[4:].lower()
+            self.cpp_info.components[component].libs = [node]
+            childs = sorted(
+                nx.descendants(graph, node),
+                key=lambda lib: libs.index(lib)
+            )
+
+            reqs = [dep[4:].lower() for dep in childs if dep.startswith('LLVM')]
+            if 'z' in childs:
+                reqs.append('zlib::zlib')
+            if 'xml2' in childs:
+                reqs.append('libxml2::libxml2')
+            if 'ffi' in childs:
+                reqs.append('libffi::libffi')
+
+            self.cpp_info.components[component].requires = reqs
+            self.cpp_info.components[component].system_libs = [
+                dep for dep in childs
+                if not dep.startswith('LLVM') and not dep in deps
+            ]
+
+        if self.settings.os != 'Windows':
+            if self.options.dylib_library:
+                reqs = []
+                if self.options.with_zlib:
+                    reqs.append('zlib::zlib')
+                if self.options.with_xml2:
+                    reqs.append('libxml2::libxml2')
+                if self.options.with_ffi:
+                    reqs.append('libffi::libffi')
+
+                self.cpp_info.components['llvm'].libs = ['LLVM']
+                self.cpp_info.components['llvm'].requires = reqs
+                self.cpp_info.components['llvm'].system_libs = [
+                    lib for lib in libs
+                    if not lib.startswith('LLVM') and not lib in deps
+                ]
+
+        # self.cpp_info.libs = [lib for lib in libs if lib not in deps]
