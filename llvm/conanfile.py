@@ -2,8 +2,8 @@ from conans import ConanFile, CMake, python_requires, tools
 from conans.errors import ConanInvalidConfiguration
 
 from pathlib import Path
-import networkx as nx
 
+import json
 import re
 
 
@@ -19,8 +19,7 @@ class LLVMConan(ConanFile):
     options = {
         'shared': [True, False],
         'fPIC': [True, False],
-        'dylib_library': [True, False],
-        'dylib_components': 'ANY',
+        'components': 'ANY',
         'targets': 'ANY',
         'exceptions': [True, False],
         'rtti': [True, False],
@@ -37,8 +36,7 @@ class LLVMConan(ConanFile):
     default_options = {
         'shared': False,
         'fPIC': True,
-        'dylib_library': False,
-        'dylib_components': 'all',
+        'components': 'all',
         'targets': 'X86',
         'exceptions': True,
         'rtti': True,
@@ -62,8 +60,7 @@ class LLVMConan(ConanFile):
     def config_options(self):
         if self.settings.os == 'Windows':
             del self.options.fPIC
-            del self.options.dylib_library
-            del self.options.dylib_components
+            del self.options.components
 
     def requirements(self):
         if self.options.with_zlib:
@@ -74,10 +71,10 @@ class LLVMConan(ConanFile):
             self.requires('libffi/3.3')
 
     def configure(self):
-        if self.settings.os != 'Windows' and self.options.shared:
-            self.options.dylib_library = False
-        if self.options.exceptions:
-            self.options.rtti = True
+        if self.settings.os == 'Windows' and self.options.shared:
+            raise ConanInvalidConfiguration('build as shared lib not supported')
+        if self.options.exceptions and not self.options.rtti:
+            raise ConanInvalidConfiguration('exceptions require rtti support')
 
     def source(self):
         url = f'{self.url}/releases/download/llvmorg-{self.version}/' \
@@ -98,15 +95,17 @@ class LLVMConan(ConanFile):
     def build(self):
         build_system = CMake(self)
 
+        build_system.definitions['BUILD_SHARED_LIBS'] = False
         build_system.definitions['CMAKE_SKIP_RPATH'] = True
+
         build_system.definitions['LLVM_TARGETS_TO_BUILD'] = self.options.targets
         build_system.definitions['LLVM_TARGET_ARCH'] = 'host'
-        if self.settings.os != 'Windows':
-            build_system.definitions['LLVM_ENABLE_PIC'] = self.options.fPIC
-            build_system.definitions['LLVM_LINK_LLVM_DYLIB'] = \
-                self.options.dylib_library
-            build_system.definitions['LLVM_DYLIB_COMPONENTS'] = \
-                self.options.dylib_components
+        build_system.definitions['LLVM_BUILD_LLVM_DYLIB'] = \
+            self.options.shared
+        build_system.definitions['LLVM_ENABLE_PIC'] = \
+            self.options.get_safe('fPIC', default=False)
+        build_system.definitions['LLVM_DYLIB_COMPONENTS'] = \
+            self.options.get_safe('components', default='all')
 
         build_system.definitions['LLVM_ABI_BREAKING_CHECKS'] = 'WITH_ASSERTS'
         build_system.definitions['LLVM_ENABLE_WARNINGS'] = True
@@ -164,97 +163,85 @@ class LLVMConan(ConanFile):
         build_system.build()
 
     def package(self):
-        build_system = CMake(self)
-        build_system.install(build_dir='.')
-
-        if self.settings.os != 'Windows':
-            if self.options.dylib_library:
-                package_path = Path(self.package_folder)
-                exports_path = package_path.joinpath('lib', 'cmake', 'llvm')
-                libdriver_deps = '"{}"'.format(';'.join([
-                    'LLVMBinaryFormat',
-                    'LLVMBitReader',
-                    'LLVMObject',
-                    'LLVMOption',
-                    'LLVMSupport'
-                ]))
-                tools.replace_in_file(
-                    str(exports_path.joinpath('LLVMExports.cmake').resolve()),
-                    '"LLVM"',
-                    libdriver_deps,
-                    strict=False
-                )
-
         self.copy('LICENSE.TXT', dst='licenses', src=self._source_subfolder)
+        package_path = Path(self.package_folder)
+
+        build_system = CMake(self)
+        build_system.install()
+
+        if not self.options.shared:
+            lib_regex = re.compile(
+                r'add_library\((\w+?)\s.*?\)'
+                r'(?:(?:#|\w|\s|\()+?'
+                r'INTERFACE_LINK_LIBRARIES\s\"((?:;|/|\.|\w)+?)\"'
+                r'(?:.|\n)*?\))?'
+            )
+            exports_file = 'LLVMExports.cmake'
+            exports_path = package_path.joinpath('lib', 'cmake', 'llvm')
+            exports_path = exports_path.joinpath(exports_file)
+
+            exports = tools.load(str(exports_path.resolve()))
+            exports = exports.replace('\$<LINK_ONLY:', '')
+            exports = exports.replace('>', '')
+
+            components = {}
+            for match in re.finditer(lib_regex, exports):
+                lib, deps = match.groups()
+                if not lib.startswith('LLVM'):
+                    continue
+
+                components[lib] = []
+                for dep in deps.split(';') if deps is not None else []:
+                    if not dep.startswith('LLVM') and Path(dep).exists():
+                        dep = Path(dep).stem.replace('lib', '')
+                    components[lib].append(dep)
+
+            components_path = package_path.joinpath('components.json')
+            with components_path.open(mode='w') as file:
+                json.dump(components, file, indent=4)
+
+        tools.rmdir(str(package_path.joinpath('bin').resolve()))
+        tools.rmdir(str(package_path.joinpath('lib', 'cmake').resolve()))
+        tools.rmdir(str(package_path.joinpath('share').resolve()))
+
+        for lib in package_path.joinpath('lib').iterdir():
+            if 'LLVM' not in lib.stem:
+                lib.unlink()
+        if self.options.shared:
+            for lib in package_path.joinpath('lib').glob('*LLVM?*.*'):
+                lib.unlink()
 
     def package_info(self):
-        lib_regex = re.compile(
-            r'add_library\((\w+?)\s.*?\)'
-            r'(?:(?:#|\w|\s|\()+?'
-            r'INTERFACE_LINK_LIBRARIES\s\"((?:;|/|\.|\w)+?)\"'
-            r'(?:.|\n)*?\))?'
-        )
-        exports_file = 'LLVMExports.cmake'
-        exports_path = Path('lib').joinpath('cmake', 'llvm', exports_file)
+        if self.options.shared:
+            self.cpp_info.libs = tools.collect_libs(self)
+            return
 
-        exports = tools.load(str(exports_path.resolve()))
-        exports = exports.replace('\$<LINK_ONLY:', '')
-        exports = exports.replace('>', '')
+        package_path = Path(self.package_folder)
+        components_path = package_path.joinpath('components.json')
+        with components_path.open(mode='r') as file:
+            components = json.load(file)
 
-        graph = nx.DiGraph()
-        for match in re.finditer(lib_regex, exports):
-            lib, deps = match.groups()
-            if not lib.startswith('LLVM') or lib == 'LLVM':
-                continue
-            for dep in deps.split(';') if deps is not None else []:
-                if not dep.startswith('LLVM'):
-                    if Path(dep).exists():
-                        dep = Path(dep).stem.replace('lib', '')
-                graph.add_edge(lib, dep)
+        dependencies = ['z', 'iconv', 'xml2', 'ffi']
+        targets = {
+            'z': 'zlib::zlib',
+            'xml2': 'libxml2::libxml2',
+            'ffi': 'libffi::libffi'
+        }
 
-        deps = ['z', 'xml2', 'iconv', 'ffi']
-        libs = list(nx.lexicographical_topological_sort(graph))
+        for lib, deps in components.items():
+            component = lib[4:].replace('LLVM', '').lower()
 
-        for node in graph.nodes:
-            if not node.startswith('LLVM'):
-                continue
+            self.cpp_info.components[component].libs = [lib]
 
-            component = node[4:].lower()
-            self.cpp_info.components[component].libs = [node]
-            childs = sorted(
-                nx.descendants(graph, node),
-                key=lambda lib: libs.index(lib)
-            )
-
-            reqs = [dep[4:].lower() for dep in childs if dep.startswith('LLVM')]
-            if 'z' in childs:
-                reqs.append('zlib::zlib')
-            if 'xml2' in childs:
-                reqs.append('libxml2::libxml2')
-            if 'ffi' in childs:
-                reqs.append('libffi::libffi')
-
-            self.cpp_info.components[component].requires = reqs
-            self.cpp_info.components[component].system_libs = [
-                dep for dep in childs
-                if not dep.startswith('LLVM') and not dep in deps
+            self.cpp_info.components[component].requires = [
+                dep[4:].replace('LLVM', '').lower()
+                for dep in deps if dep.startswith('LLVM')
             ]
+            for lib, target in targets.items():
+                if lib in deps:
+                    self.cpp_info.components[component].requires.append(target)
 
-        if self.settings.os != 'Windows':
-            if self.options.dylib_library:
-                reqs = []
-                if self.options.with_zlib:
-                    reqs.append('zlib::zlib')
-                if self.options.with_xml2:
-                    reqs.append('libxml2::libxml2')
-                if self.options.with_ffi:
-                    reqs.append('libffi::libffi')
-
-                self.cpp_info.components['llvm'].libs = ['LLVM']
-                self.cpp_info.components['llvm'].requires = reqs
-                self.cpp_info.components['llvm'].system_libs = [
-                    lib for lib in libs
-                    if not lib.startswith('LLVM') and not lib in deps
-                ]
-
-        # self.cpp_info.libs = [lib for lib in libs if lib not in deps]
+            self.cpp_info.components[component].system_libs = [
+                dep for dep in deps
+                if not dep.startswith('LLVM') and dep not in dependencies
+            ]
