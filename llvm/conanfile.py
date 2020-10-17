@@ -37,7 +37,7 @@ class LLVMConan(ConanFile):
         'shared': False,
         'fPIC': True,
         'components': 'all',
-        'targets': 'X86',
+        'targets': 'all',
         'exceptions': True,
         'rtti': True,
         'threads': True,
