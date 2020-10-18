@@ -1,5 +1,5 @@
-from conans import ConanFile, CMake, python_requires, tools
 from conans.errors import ConanInvalidConfiguration
+from conans import ConanFile, CMake, tools
 
 from pathlib import Path
 
@@ -51,7 +51,7 @@ class LLVMConan(ConanFile):
         'with_ffi': False
     }
 
-    exports_sources = ['CMakeLists.txt', 'iconv.patch']
+    exports_sources = ['CMakeLists.txt', 'patches/*']
     generators = 'cmake'
     no_copy_source = True
 
@@ -90,7 +90,10 @@ class LLVMConan(ConanFile):
             item.rename(str(source_path.joinpath(item.name).resolve()))
         source_path.joinpath(f'llvm-{self.version}.src').rmdir()
 
-        tools.patch(base_path=self._source_subfolder, patch_file='iconv.patch')
+        tools.patch(
+            base_path=self._source_subfolder,
+            patch_file=str(Path('patches').joinpath('iconv.patch').resolve())
+        )
 
     def build(self):
         build_system = CMake(self)
