@@ -34,5 +34,5 @@ class LLVMTestPackageConan(ConanFile):
             self.run(command, run_environment=True)
 
         llvm_path = Path(self.deps_cpp_info['llvm'].rootpath)
-        license_file = llvm_path.joinpath('licenses', 'LICENSE.txt')
+        license_file = llvm_path.joinpath('licenses', 'LICENSE.TXT')
         assert license_file.exists()

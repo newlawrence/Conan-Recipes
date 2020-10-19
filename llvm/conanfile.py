@@ -184,7 +184,7 @@ class LLVMConan(ConanFile):
             lib_regex = re.compile(
                 r'add_library\((\w+?)\s.*?\)'
                 r'(?:(?:#|\w|\s|\()+?'
-                r'INTERFACE_LINK_LIBRARIES\s\"((?:;|:|/|\.|\w|\s|\(|\))+?)\"'
+                r'INTERFACE_LINK_LIBRARIES\s\"((?:;|:|/|\.|\w|\s|-|\(|\))+?)\"'
                 r'(?:.|\n)*?\))?'
             )
             exports_file = 'LLVMExports.cmake'
@@ -203,9 +203,11 @@ class LLVMConan(ConanFile):
 
                 components[lib] = []
                 for dep in deps.split(';') if deps is not None else []:
-                    if not dep.startswith('LLVM') and Path(dep).exists():
+                    if Path(dep).exists():
                         dep = Path(dep).stem.replace('lib', '')
-                    components[lib].append(dep)
+                    elif dep.startswith('-delayload:'):
+                        continue
+                    components[lib].append(dep.replace('-l', ''))
 
             components_path = package_path.joinpath('components.json')
             with components_path.open(mode='w') as file:
@@ -220,12 +222,17 @@ class LLVMConan(ConanFile):
             if 'LLVM' not in lib.stem:
                 lib.unlink()
         if self.options.shared:
-            for lib in package_path.joinpath('lib').glob('*LLVM?*.*'):
+            for lib in package_path.joinpath('lib').glob('*LLVM???*.*'):
                 lib.unlink()
 
     def package_info(self):
         if self.options.shared:
             self.cpp_info.libs = tools.collect_libs(self)
+            if self.settings.os == 'Linux':
+                self.cpp_info.libs.extend(['tinfo', 'pthread'])
+                self.cpp_info.libs.extend(['rt', 'dl', 'm'])
+            elif self.settings.os == 'Macos':
+                self.cpp_info.libs.extend(['curses', 'm'])
             return
 
         package_path = Path(self.package_folder)

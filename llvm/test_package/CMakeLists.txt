@@ -15,9 +15,6 @@ if(TARGET llvm::interpreter)  # static libraries
         llvm::irreader
         llvm::x86codegen
     )
-    if(WIN32)
-        target_link_libraries(${PROJECT_NAME} PRIVATE llvm::demangle)
-    endif()
 else()  # shared library
     target_link_libraries(${PROJECT_NAME} llvm::llvm)
 endif()
