@@ -19,12 +19,13 @@ class LLVMTestPackageConan(ConanFile):
         elif str(self.options['llvm'].targets) not in ['all', 'X86']:
             test_package = False
         elif self.options['llvm'].shared:
-             if self.options['llvm'].components != 'all':
-                 if not all([
-                     target in str(self.options['llvm'].components)
-                     for target in ['interpreter', 'irreader', 'x86codegen']
-                 ]):
-                     test_package = False
+            if self.options['llvm'].components != 'all':
+                requirements = ['interpreter', 'irreader', 'x86codegen']
+                targets = str(self.options['llvm'].components)
+                if self.settings.os == 'Windows':
+                    requirements.append('demangle')
+                if not all([target in components for target in requirements]):
+                    test_package = False
 
         if test_package:
             executable = Path('bin').joinpath('test_package')

@@ -4,6 +4,7 @@ from conans import ConanFile, CMake, tools
 from pathlib import Path
 
 import json
+import time
 import re
 
 
@@ -61,13 +62,16 @@ class LLVMConan(ConanFile):
         if self.settings.os == 'Windows':
             del self.options.fPIC
             del self.options.components
+            del self.options.with_zlib
+            del self.options.with_xml2
+            del self.options.with_ffi
 
     def requirements(self):
-        if self.options.with_zlib:
+        if self.options.get_safe('with_zlib', False):
             self.requires('zlib/1.2.11')
-        if self.options.with_xml2:
+        if self.options.get_safe('with_xml2', False):
             self.requires('libxml2/2.9.10')
-        if self.options.with_ffi:
+        if self.options.get_safe('with_ffi', False):
             self.requires('libffi/3.3')
 
     def configure(self):
@@ -92,7 +96,7 @@ class LLVMConan(ConanFile):
 
         tools.patch(
             base_path=self._source_subfolder,
-            patch_file=str(Path('patches').joinpath('iconv.patch').resolve())
+            patch_file=str(Path('patches').joinpath('cmake.patch').resolve())
         )
 
     def build(self):
@@ -153,10 +157,14 @@ class LLVMConan(ConanFile):
         build_system.definitions['LLVM_ENABLE_Z3_SOLVER'] = False
         build_system.definitions['LLVM_ENABLE_LIBPFM'] = False
         build_system.definitions['LLVM_ENABLE_LIBEDIT'] = False
-        build_system.definitions['LLVM_ENABLE_ZLIB'] = self.options.with_zlib
-        build_system.definitions['LLVM_ENABLE_LIBXML2'] = self.options.with_xml2
-        build_system.definitions['LLVM_ENABLE_FFI'] = self.options.with_ffi
-        if self.options.with_ffi:
+
+        build_system.definitions['LLVM_ENABLE_ZLIB'] = \
+            self.options.get_safe('with_zlib', False)
+        build_system.definitions['LLVM_ENABLE_LIBXML2'] = \
+            self.options.get_safe('with_xml2', False)
+        build_system.definitions['LLVM_ENABLE_FFI'] = \
+            self.options.get_safe('with_ffi', False)
+        if self.options.get_safe('with_ffi', False):
             build_system.definitions['FFI_INCLUDE_DIR'] = \
                 self.deps_cpp_info['libffi'].include_paths[0]
             build_system.definitions['FFI_LIBRARY_DIR'] = \
@@ -176,7 +184,7 @@ class LLVMConan(ConanFile):
             lib_regex = re.compile(
                 r'add_library\((\w+?)\s.*?\)'
                 r'(?:(?:#|\w|\s|\()+?'
-                r'INTERFACE_LINK_LIBRARIES\s\"((?:;|/|\.|\w)+?)\"'
+                r'INTERFACE_LINK_LIBRARIES\s\"((?:;|:|/|\.|\w|\s|\(|\))+?)\"'
                 r'(?:.|\n)*?\))?'
             )
             exports_file = 'LLVMExports.cmake'
@@ -203,6 +211,7 @@ class LLVMConan(ConanFile):
             with components_path.open(mode='w') as file:
                 json.dump(components, file, indent=4)
 
+        time.sleep(1)
         tools.rmdir(str(package_path.joinpath('bin').resolve()))
         tools.rmdir(str(package_path.joinpath('lib', 'cmake').resolve()))
         tools.rmdir(str(package_path.joinpath('share').resolve()))
