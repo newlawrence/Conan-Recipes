@@ -2,19 +2,16 @@ from conans.errors import ConanInvalidConfiguration
 from conans import ConanFile, CMake, tools
 
 from pathlib import Path
-
 import json
-import time
 import re
 
 
 class LLVMConan(ConanFile):
     name = 'llvm'
-    version = '9.0.1'
     license = 'Apache-2'
     description = 'A collection of modular compiler and toolchain technologies.'
     homepage = 'https://llvm.org/'
-    url = 'https://github.com/llvm/llvm-project'
+    url = 'https://github.com/llvm/llvm-project/tree/master/llvm'
 
     settings = ('os', 'arch', 'compiler', 'build_type')
     options = {
@@ -81,26 +78,18 @@ class LLVMConan(ConanFile):
             raise ConanInvalidConfiguration('exceptions require rtti support')
 
     def source(self):
-        url = f'{self.url}/releases/download/llvmorg-{self.version}/' \
-              f'llvm-{self.version}.src.tar.xz'
-        filename = f'llvm-{self.version}.tar.xz'
+        tools.get(**self.conan_data['sources'][self.version])
+        source_path = Path(f'llvm-{self.version}.src')
+        source_path.rename(self._source_subfolder)
 
-        tools.download(url, filename, verify=False)
-        tools.unzip(filename, destination=self._source_subfolder)
-        Path(filename).unlink()
-
-        source_path = Path(self._source_subfolder)
-        for item in source_path.joinpath(f'llvm-{self.version}.src').iterdir():
-            item.rename(str(source_path.joinpath(item.name).resolve()))
-        source_path.joinpath(f'llvm-{self.version}.src').rmdir()
-
-        tools.patch(
-            base_path=self._source_subfolder,
-            patch_file=str(Path('patches').joinpath('cmake.patch').resolve())
-        )
+        if self.version in self.conan_data['patches']:
+            tools.patch(**self.conan_data['patches'][self.version])
 
     def build(self):
-        build_system = CMake(self)
+        if self.settings.compiler == 'Visual Studio':
+            build_system = CMake(self, generator='NMake Makefiles')
+        else:
+            build_system = CMake(self)
 
         build_system.definitions['BUILD_SHARED_LIBS'] = False
         build_system.definitions['CMAKE_SKIP_RPATH'] = True
@@ -177,7 +166,10 @@ class LLVMConan(ConanFile):
         self.copy('LICENSE.TXT', dst='licenses', src=self._source_subfolder)
         package_path = Path(self.package_folder)
 
-        build_system = CMake(self)
+        if self.settings.compiler == 'Visual Studio':
+            build_system = CMake(self, generator='NMake Makefiles')
+        else:
+            build_system = CMake(self)
         build_system.install()
 
         if not self.options.shared:
@@ -213,7 +205,6 @@ class LLVMConan(ConanFile):
             with components_path.open(mode='w') as file:
                 json.dump(components, file, indent=4)
 
-        time.sleep(1)
         tools.rmdir(str(package_path.joinpath('bin').resolve()))
         tools.rmdir(str(package_path.joinpath('lib', 'cmake').resolve()))
         tools.rmdir(str(package_path.joinpath('share').resolve()))
@@ -229,10 +220,10 @@ class LLVMConan(ConanFile):
         if self.options.shared:
             self.cpp_info.libs = tools.collect_libs(self)
             if self.settings.os == 'Linux':
-                self.cpp_info.libs.extend(['tinfo', 'pthread'])
-                self.cpp_info.libs.extend(['rt', 'dl', 'm'])
+                self.cpp_info.system_libs = ['tinfo', 'pthread']
+                self.cpp_info.system_libs.extend(['rt', 'dl', 'm'])
             elif self.settings.os == 'Macos':
-                self.cpp_info.libs.extend(['curses', 'm'])
+                self.cpp_info.system_libs = ['curses', 'm']
             return
 
         package_path = Path(self.package_folder)
