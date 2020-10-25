@@ -4,6 +4,7 @@ from conans import ConanFile, CMake, tools
 from pathlib import Path
 import json
 import re
+import os
 
 
 class LLVMConan(ConanFile):
@@ -87,7 +88,8 @@ class LLVMConan(ConanFile):
 
     def build(self):
         if self.settings.compiler == 'Visual Studio':
-            build_system = CMake(self, generator='NMake Makefiles')
+            generator = os.getenv('CONAN_CMAKE_GENERATOR', 'NMake Makefiles')
+            build_system = CMake(self, generator=generator)
         else:
             build_system = CMake(self)
 
@@ -118,7 +120,7 @@ class LLVMConan(ConanFile):
         build_system.definitions['LLVM_ENABLE_BINDINGS'] = False
         build_system.definitions['LLVM_CCACHE_BUILD'] = False
 
-        build_system.definitions['LLVM_INCLUDE_TOOLS'] = True
+        build_system.definitions['LLVM_INCLUDE_TOOLS'] = self.options.shared
         build_system.definitions['LLVM_INCLUDE_EXAMPLES'] = False
         build_system.definitions['LLVM_INCLUDE_TESTS'] = False
         build_system.definitions['LLVM_INCLUDE_BENCHMARKS'] = False
@@ -167,7 +169,8 @@ class LLVMConan(ConanFile):
         package_path = Path(self.package_folder)
 
         if self.settings.compiler == 'Visual Studio':
-            build_system = CMake(self, generator='NMake Makefiles')
+            generator = os.getenv('CONAN_CMAKE_GENERATOR', 'NMake Makefiles')
+            build_system = CMake(self, generator=generator)
         else:
             build_system = CMake(self)
         build_system.install()
