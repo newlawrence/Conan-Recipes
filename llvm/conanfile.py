@@ -84,8 +84,8 @@ class LLVMConan(ConanFile):
         source_path.rename(self._source_subfolder)
 
         if self.version in self.conan_data['patches']:
-            tools.patch(**self.conan_data['patches'][self.version]['vs2019'])
-            tools.patch(**self.conan_data['patches'][self.version]['cmake'])
+            for patch in self.conan_data['patches'][self.version].values():
+                tools.patch(**patch)
 
     def build(self):
         if self.settings.compiler == 'Visual Studio':
